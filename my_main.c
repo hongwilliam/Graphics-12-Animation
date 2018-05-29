@@ -1,35 +1,26 @@
 /*========== my_main.c ==========
-
   This is the only file you need to modify in order
   to get a working mdl project (for now).
-
   my_main.c will serve as the interpreter for mdl.
   When an mdl script goes through a lexer and parser,
   the resulting operations will be in the array op[].
-
   Your job is to go through each entry in op and perform
   the required action from the list below:
-
   push: push a new origin matrix onto the origin stack
   pop: remove the top matrix on the origin stack
-
   move/scale/rotate: create a transformation matrix
                      based on the provided values, then
                      multiply the current top of the
                      origins stack by it.
-
   box/sphere/torus: create a solid object based on the
                     provided values. Store that in a
                     temporary matrix, multiply it by the
                     current top of the origins stack, then
                     call draw_polygons.
-
   line: create a line based on the provided values. Stores
         that in a temporary matrix, multiply it by the
         current top of the origins stack, then call draw_lines.
-
   save: call save_extension with the provided filename
-
   display: view the image live
   =========================*/
 
@@ -52,16 +43,12 @@
 /*======== void first_pass() ==========
   Inputs:
   Returns:
-
   Checks the op array for any animation commands
   (frames, basename, vary)
-
   Should set num_frames and basename if the frames
   or basename commands are present
-
   If vary is found, but frames is not, the entire
   program should exit.
-
   If frames is found, but basename is not, set name
   to some default value, and print out a message
   with the name being used.
@@ -72,35 +59,81 @@ void first_pass() {
   extern int num_frames;
   extern char name[128];
 
+  int frame = 0;
+  int basename = 0;
+  int vary = 0;
+
+  int i;
+  for (i = 0; i < lastop; i++){
+    if (op[i].opcode == FRAMES){
+      num_frames = op[i].op.frames.num_frames;
+      frame++; }
+
+    else if (op[i].opcode == BASENAME){
+      strcpy(name, op[i].op.basename.p->name);
+      basename++; }
+
+    else if (op[i].opcode == VARY){
+      vary++; }
+  }
+
+  if (vary && !frame){
+    printf("You need frame to vary");
+    exit(0); }
+
+  else if (frame && !basename){
+    strcpy(name, "animation");
+    printf("Basename not specified so 'animation' will be used"); }
+
+  return;
+
 }
 
 /*======== struct vary_node ** second_pass() ==========
   Inputs:
   Returns: An array of vary_node linked lists
-
   In order to set the knobs for animation, we need to keep
   a seaprate value for each knob for each frame. We can do
   this by using an array of linked lists. Each array index
   will correspond to a frame (eg. knobs[0] would be the first
   frame, knobs[2] would be the 3rd frame and so on).
-
   Each index should contain a linked list of vary_nodes, each
   node contains a knob name, a value, and a pointer to the
   next node.
-
   Go through the opcode array, and when you find vary, go
   from knobs[0] to knobs[frames-1] and add (or modify) the
   vary_node corresponding to the given knob with the
   appropirate value.
   ====================*/
 struct vary_node ** second_pass() {
-  return NULL;
+  struct vary_node** frames = malloc(sizeof(struct vary_node *) * num_frames);
+  int i, j;
+  for (i = 0; i < num_frames; i++){
+    struct vary_node * top = NULL;
+
+    for (j = 0; j < lastop; j++){
+      if ( op[j].opcode == VARY &&
+	         op[j].op.vary.start_frame <= i &&
+	         op[j].op.vary.end_frame >= i){
+
+      int start = op[j].op.vary.start_frame;
+      int end = op[j].op.vary.end_frame;
+      float percent = (i - start) / (double) (end - start);
+	    struct vary_node * node = (struct vary_node *) malloc(sizeof(struct vary_node));
+	    strcpy(node->name, op[j].op.vary.p->name);
+	    node->value = op[j].op.vary.start_val + percent * (op[j].op.vary.end_val - op[j].op.vary.start_val);
+	    node->next = top;
+	    top = node; }
+    }
+
+    frames[i] = top;
+  }
+  return frames;
 }
 
 /*======== void print_knobs() ==========
 Inputs:
 Returns:
-
 Goes through symtab and display all the knobs and their
 currnt values
 ====================*/
@@ -122,20 +155,16 @@ void print_knobs() {
 /*======== void my_main() ==========
   Inputs:
   Returns:
-
   This is the main engine of the interpreter, it should
   handle most of the commadns in mdl.
-
   If frames is not present in the source (and therefore
   num_frames is 1, then process_knobs should be called.
-
   If frames is present, the enitre op array must be
   applied frames time. At the end of each frame iteration
   save the current screen to a file named the
   provided basename plus a numeric string such that the
   files will be listed in order, then clear the screen and
   reset any other data structures that need it.
-
   Important note: you cannot just name your files in
   regular sequence, like pic0, pic1, pic2, pic3... if that
   is done, then pic1, pic10, pic11... will come before pic2
@@ -201,6 +230,23 @@ void my_main() {
   tmp = new_matrix(4, 1000);
   clear_screen( t );
   clear_zbuffer(zb);
+
+  if (num_frames > 1){
+    first_pass();
+    struct vary_node** knobs = second_pass();
+    int frame;
+    for (frame = 0; frame < num_frames; frame++){
+      strict vary_node* temp = knobs[frame];
+      while (temp){
+        if (!lookup_symbol(temp->name)){
+          add_symbol(temp->name, SYM_VALUE, &(temp->value)); }
+        else{
+	         set_value(lookup_symbol(temp->name),temp->value);
+           temp = temp->next; }
+      }
+
+      printf("\n[frame %d] printing knobs\n",frame);
+      print_knobs();
 
   for (i=0;i<lastop;i++) {
     //printf("%d: ",i);
